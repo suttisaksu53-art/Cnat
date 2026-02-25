@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="th">
 <head>
@@ -118,6 +117,7 @@
     </div>
 
     <script>
+
 	function openItemModal(item = null) {
             // เช็คว่าเป็นการแก้ไข (มีข้อมูลส่งมา) หรือเพิ่มใหม่
             const isEdit = !!item;
@@ -270,14 +270,21 @@
             return `${day}/${month}/${year}`; 
         }
 
-        function calculateDaysRemaining(dateReported) { 
-            if (!dateReported) return -1; 
-            const reported = new Date(dateReported); 
-            const now = new Date(); 
-            const diffTime = Math.abs(now - reported); 
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            return diffDays; 
-        }
+        // --- เพิ่มฟังก์ชันใหม่แทนของเดิม ---
+        function calculateOverdueDays(dateReported) {
+             if (!dateReported) return -1;
+             
+             const reported = new Date(dateReported);
+             reported.setHours(0, 0, 0, 0); // เซ็ตเวลาเป็นเที่ยงคืนตรง
+             
+             const now = new Date();
+             now.setHours(0, 0, 0, 0); // เซ็ตเวลาปัจจุบันเป็นเที่ยงคืนตรง
+             
+             const diffTime = now.getTime() - reported.getTime();
+             const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+             
+             return diffDays - 60; // ลบ 60 วันแรกออก เพื่อให้วันที่ 61 มีค่าเท่ากับ 1
+         }
 
         function updateRowsPerPage(val) { rowsPerPage = parseInt(val); currentPage = 1; renderContent(); }
 
@@ -726,8 +733,10 @@
                 canAct = currentUser.username === 'admin' || (currentView === 'items' && currentUser.canManage) || (currentView === 'report' && currentUser.canReport) || ((currentView === 'dispose' || currentView === 'return_customer') && currentUser.canDispose);
                 let filtered = items;
                 if(currentView === 'report') filtered = items.filter(i => !i.dateReported);
-                if(currentView === 'dispose') filtered = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref !== 'รับคืน');
-                if(currentView === 'return_customer') filtered = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref === 'รับคืน');
+                
+                // --- ส่วนที่ถูกแก้ไข (กรองให้แสดงเฉพาะอันที่เลย 60 วันไปแล้ว และเริ่มนับ 1) ---
+                if(currentView === 'dispose') filtered = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref !== 'รับคืน');
+                if(currentView === 'return_customer') filtered = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref === 'รับคืน');
 
                 filtered = filtered.filter(i => {
                     if (!searchTerm) return true;
@@ -761,7 +770,8 @@
                     let commonCols = '';
                     if(currentView === 'items') commonCols = `<td class="p-4">${checkbox}</td><td class="p-4 font-bold">${item.receiptNo}</td><td class="p-4">${item.qty}</td><td class="p-4">${item.layer}</td><td class="p-4">${formatDateTh(item.dateReceived, false)}</td><td class="p-4 text-xs">${item.disposalPref}</td>`;
                     else if(currentView === 'report') commonCols = `<td class="p-4 font-bold">${item.receiptNo}</td><td class="p-4">${formatDateTh(item.dateReceived, false)}</td><td class="p-4 text-xs">${item.params}</td>`;
-                    else if(currentView === 'dispose' || currentView === 'return_customer') { const days = calculateDaysRemaining(item.dateReported); commonCols = `<td class="p-4 font-bold">${item.receiptNo}</td><td class="p-4">${item.qty}</td><td class="p-4">${item.layer}</td><td class="p-4">${formatDateTh(item.dateReported, false)}</td><td class="p-4 text-red-600 font-bold">${days} วัน</td>`; }
+                    // --- ส่วนที่ถูกแก้ไข (ดึงค่า OverdueDays ไปแสดง) ---
+                    else if(currentView === 'dispose' || currentView === 'return_customer') { const days = calculateOverdueDays(item.dateReported); commonCols = `<td class="p-4 font-bold">${item.receiptNo}</td><td class="p-4">${item.qty}</td><td class="p-4">${item.layer}</td><td class="p-4">${formatDateTh(item.dateReported, false)}</td><td class="p-4 text-red-600 font-bold">${days} วัน</td>`; }
                     return `<tr class="hover:bg-gray-50">${commonCols}<td class="p-4 text-center space-x-2">${actions}</td></tr>`;
                 }).join('');
 
@@ -890,11 +900,13 @@
         function exportDisposeXLSX(type) { 
             if (typeof XLSX === 'undefined') { alert('Library Excel ยังไม่พร้อมใช้งาน'); return; } 
             let overdueItems = [];
-            if(type === 'return') overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref === 'รับคืน');
-            else overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref !== 'รับคืน');
+            
+            // --- แก้ไขการ Export Excel ให้ใช้ฟังก์ชันนับวันแบบใหม่ ---
+            if(type === 'return') overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref === 'รับคืน');
+            else overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref !== 'รับคืน');
             
             const wb = XLSX.utils.book_new(); 
-            const ws_data = overdueItems.map(i => ({ "เลขรับ": i.receiptNo, "จำนวน": i.qty, "ชั้นเก็บ": i.layer, "วันที่รายงานผล": formatDateForPDF(i.dateReported), "เกินกำหนด(วัน)": calculateDaysRemaining(i.dateReported) })); 
+            const ws_data = overdueItems.map(i => ({ "เลขรับ": i.receiptNo, "จำนวน": i.qty, "ชั้นเก็บ": i.layer, "วันที่รายงานผล": formatDateForPDF(i.dateReported), "เกินกำหนด(วัน)": calculateOverdueDays(i.dateReported) })); 
             const ws = XLSX.utils.json_to_sheet(ws_data); 
             XLSX.utils.book_append_sheet(wb, ws, "List"); 
             XLSX.writeFile(wb, `${type === 'return' ? 'Return_List' : 'Disposal_List'}.xlsx`); 
@@ -903,11 +915,13 @@
             if (!window.jspdf) { alert('Library PDF ยังไม่พร้อมใช้งาน'); return; } 
             let overdueItems = [];
             let settingsKey = 'dispose';
+            
+            // --- แก้ไขการ Export PDF ให้ใช้ฟังก์ชันนับวันแบบใหม่ ---
             if(type === 'return') {
-                overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref === 'รับคืน');
+                overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref === 'รับคืน');
                 settingsKey = 'return_customer';
             } else {
-                overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateDaysRemaining(i.dateReported) >= 60 && i.disposalPref !== 'รับคืน');
+                overdueItems = items.filter(i => i.dateReported && i.disposalStatus !== 'Completed' && calculateOverdueDays(i.dateReported) >= 1 && i.disposalPref !== 'รับคืน');
             }
 
             const { jsPDF } = window.jspdf; const doc = new jsPDF(); 
@@ -917,7 +931,7 @@
                 doc.text(type === 'return' ? "Return Samples Report" : "Disposal List Report", 14, 20); 
                 doc.setFontSize(10); doc.text(`Generated on ${formatDateForPDF(new Date().toISOString())}`, 14, 30); 
                 const tableColumn = ["Sample No", "Qty", "Layer", "Report Date", "Overdue (Days)"]; 
-                const tableRows = overdueItems.map(i => [i.receiptNo, i.qty, i.layer, formatDateForPDF(i.dateReported), calculateDaysRemaining(i.dateReported)]); 
+                const tableRows = overdueItems.map(i => [i.receiptNo, i.qty, i.layer, formatDateForPDF(i.dateReported), calculateOverdueDays(i.dateReported)]); 
                 doc.autoTable({ 
                     head: [tableColumn], body: tableRows, startY: 40, styles: { font: 'Sarabun', fontStyle: 'normal' },
                     didDrawPage: function (data) {
