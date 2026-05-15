@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ระบบประเมินความอุดมสมบูรณ์ดินจากแร่ดินเหนียว (เปรียบเทียบ 2 โมเดล & กราฟสถิติ)</title>
     
+    <!-- นำเข้า React, ReactDOM, Babel และ Tailwind CSS -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -43,6 +44,8 @@
         const RefreshCw = ({size=24, className=""}) => <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>;
 
         // ---------------- ฟังก์ชันสถิติ ----------------
+        // เรียงลำดับตัวเลือกใหม่ทั้งหมดที่ใช้ในหน้า UI ประเมินดิน (เอา >80 และ 60-80 ออก)
+        const availableRanges = ['0', '<5', '5-20', '20-40', '40-60', '>60'];
         const rankMap = { '0': 0, '<5': 1, '5-20': 2, '20-40': 3, '40-60': 4, '>60': 5, '60-80': 5, '>80': 6 };
 
         const getLddScore = (val, param) => {
@@ -262,7 +265,6 @@
             const rawMaxY = Math.max(...yValues);
             const yRange = (rawMaxY - rawMinY) === 0 ? 1 : (rawMaxY - rawMinY);
             
-            // ปรับระยะเผื่อแกน Y ใหม่ ถ้าเป็นคะแนนรวม (1,2,3) ให้ล็อกค่าต่ำสุด-สูงสุดไว้เลย
             const minY = isFertilityScore ? 0.5 : Math.max(0, rawMinY - (yRange * 0.1)); 
             const maxY = isFertilityScore ? 3.5 : rawMaxY + (yRange * 0.1);
             const adjYRange = maxY - minY;
@@ -282,7 +284,6 @@
 
             const xTicks = [0, 1, 2, 3, 4, 5, 6];
             
-            // ถ้าเป็นโหมด Top-Down (คะแนนรวม) โชว์แกน Y แค่ 1, 2, 3 พอ
             const yTicks = isFertilityScore ? [1, 2, 3] : [
                 minY, 
                 minY + adjYRange * 0.25, 
@@ -755,16 +756,18 @@
                                         <LayersIcon size={28} className="mr-2" /> ข้อมูลดัชนีในกล่อง (จัดกลุ่มก่อนหาจุดตัด)
                                     </h2>
                                     <p className="text-orange-700 mt-2 max-w-4xl mx-auto">
-                                        โปรแกรมแสดงให้เห็นอย่างโปร่งใสว่า <strong>ดัชนี (Index)</strong> ของดินทั้ง 96 ตัวอย่างในแต่ละกล่องนั้น ถูกคำนวณมาจากการนำ <strong>(ค่าน้ำหนัก × อันดับแร่)</strong> มาบวกกันอย่างไร
+                                        โปรแกรมแสดงให้เห็นอย่างโปร่งใสว่า <strong>ดัชนี (Index)</strong> ของดินทั้ง {rawTrainingData.length} ตัวอย่างในแต่ละกล่องนั้น ถูกคำนวณมาจากการนำ <strong>(ค่าน้ำหนัก W × อันดับแร่)</strong> ของแร่ทั้ง 4 ชนิด มาบวกกันอย่างไร <br/>พร้อมแสดงวิธีการคำนวณ <strong>ค่าเฉลี่ย</strong> และ <strong>จุดตัด</strong> ที่ด้านล่างของแต่ละกล่อง
                                     </p>
                                 </div>
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                                    {loopProperties.map(prop => (
-                                        <div key={prop} className="bg-white p-4 border border-orange-200 rounded-xl shadow-sm flex flex-col h-[650px]">
+                                    {loopProperties.map(prop => {
+                                        const cut = cutoffs[prop];
+                                        return (
+                                        <div key={prop} className="bg-white p-4 border border-orange-200 rounded-xl shadow-sm flex flex-col h-[750px]">
                                             <h3 className="font-bold text-center text-lg mb-3 uppercase text-gray-800 border-b pb-2 shrink-0">ดัชนี {prop === 'bs' ? '%BS' : prop === 'fertility' ? 'รวมทั้งหมด' : prop}</h3>
                                             
-                                            <div className="flex-1 flex flex-col space-y-3 min-h-0">
+                                            <div className="flex-1 flex flex-col gap-2 min-h-0 relative">
                                                 <div className="bg-red-50 p-2 rounded border border-red-200 flex-1 flex flex-col min-h-0">
                                                     <h4 className="text-xs font-bold text-red-800 mb-1 flex justify-between items-center shrink-0">
                                                         <span>กล่อง 1 (ต่ำ)</span> <span className="bg-red-200 px-1.5 rounded">n={groupedData[prop][1].length}</span>
@@ -779,6 +782,15 @@
                                                         ))}
                                                         {groupedData[prop][1].length === 0 && <div className="text-gray-400 italic text-center mt-10">ไม่มีข้อมูล</div>}
                                                     </div>
+                                                    <div className="mt-2 pt-1 border-t border-red-200 text-center shrink-0">
+                                                        <p className="text-[10.5px] text-red-800">ค่าเฉลี่ยกลุ่มต่ำ (Mean) = <strong>{cut.mean1.toFixed(3)}</strong></p>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex justify-center shrink-0 -my-3 z-10">
+                                                    <span className="bg-white border-2 border-yellow-400 text-gray-800 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-sm whitespace-nowrap">
+                                                        ✂️ จุดตัด: ({cut.mean1.toFixed(3)} + {cut.mean2.toFixed(3)}) ÷ 2 = {cut.t1.toFixed(3)}
+                                                    </span>
                                                 </div>
                                                 
                                                 <div className="bg-yellow-50 p-2 rounded border border-yellow-200 flex-1 flex flex-col min-h-0">
@@ -795,6 +807,15 @@
                                                         ))}
                                                         {groupedData[prop][2].length === 0 && <div className="text-gray-400 italic text-center mt-10">ไม่มีข้อมูล</div>}
                                                     </div>
+                                                    <div className="mt-2 pt-1 border-t border-yellow-300 text-center shrink-0">
+                                                        <p className="text-[10.5px] text-yellow-800">ค่าเฉลี่ยกลุ่มกลาง (Mean) = <strong>{cut.mean2.toFixed(3)}</strong></p>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex justify-center shrink-0 -my-3 z-10">
+                                                    <span className="bg-white border-2 border-green-400 text-gray-800 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-sm whitespace-nowrap">
+                                                        ✂️ จุดตัด: ({cut.mean2.toFixed(3)} + {cut.mean3.toFixed(3)}) ÷ 2 = {cut.t2.toFixed(3)}
+                                                    </span>
                                                 </div>
                                                 
                                                 <div className="bg-green-50 p-2 rounded border border-green-200 flex-1 flex flex-col min-h-0">
@@ -811,10 +832,13 @@
                                                         ))}
                                                         {groupedData[prop][3].length === 0 && <div className="text-gray-400 italic text-center mt-10">ไม่มีข้อมูล</div>}
                                                     </div>
+                                                    <div className="mt-2 pt-1 border-t border-green-300 text-center shrink-0">
+                                                        <p className="text-[10.5px] text-green-800">ค่าเฉลี่ยกลุ่มสูง (Mean) = <strong>{cut.mean3.toFixed(3)}</strong></p>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             </div>
                         )}
@@ -950,7 +974,7 @@
                                                 <label className="font-medium text-gray-700 text-sm">{mineral}</label>
                                                 <select className="p-2 border border-gray-300 rounded-lg w-full bg-white focus:ring-2 focus:ring-blue-500"
                                                     value={inputXrd[mineral]} onChange={(e) => setInputXrd({...inputXrd, [mineral]: e.target.value})}>
-                                                    {Object.keys(rankMap).map(range => <option key={range} value={range}>{range}% (อันดับ: {rankMap[range]})</option>)}
+                                                    {availableRanges.map(range => <option key={range} value={range}>{range}% (อันดับ: {rankMap[range]})</option>)}
                                                 </select>
                                             </div>
                                         ))}
