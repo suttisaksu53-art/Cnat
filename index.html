@@ -1066,3 +1066,134 @@
                                                     {Object.entries(prediction.results).map(([prop, data]) => (
                                                         <div key={prop} className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                                                             <div className="bg-gray-100 px-4 py-2 flex justify-between items-center border-b border-gray-200">
+                                                                <span className="font-bold text-gray-700 uppercase tracking-wide">
+                                                                    {prop === 'fertility' ? 'พารามิเตอร์: คะแนนความอุดมสมบูรณ์รวม' : `พารามิเตอร์: ${prop === 'bs' ? '%BS' : prop}`}
+                                                                </span>
+                                                                <span className="font-bold text-white bg-blue-600 px-3 py-1 rounded-full text-sm shadow-inner">ได้ {data.score} คะแนน</span>
+                                                            </div>
+                                                            <div className="p-4 bg-white font-mono text-sm space-y-3">
+                                                                <div>
+                                                                    <p className="text-gray-600 break-words"><span className="font-bold text-blue-700">Index</span> = {data.equationStr}</p>
+                                                                    <p className="text-gray-800 font-bold mt-1">Index = {data.index}</p>
+                                                                </div>
+                                                                <div className="border-t border-dashed border-gray-200 pt-3">
+                                                                    <p className="text-gray-500 text-xs mb-1">ช่วงคะแนนที่ตั้งไว้: {data.cutoffLimitsStr}</p>
+                                                                    <p className="text-green-700 font-semibold flex items-center bg-green-50 w-fit px-2 py-1 rounded"><CheckCircle2 size={14} className="mr-1" />{data.criteriaStr}</p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ===================== ส่วนตารางอ้างอิงและที่มาจุดตัด ===================== */}
+                        {modelTrained && (
+                            <div className="space-y-6 mt-6">
+                                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                                    <h3 className="text-xl font-bold text-green-800 mb-2 border-b-2 border-green-200 pb-2 flex items-center">
+                                        <BookOpen size={24} className="text-green-600 mr-2" />
+                                        ตารางอ้างอิง: ตารางที่ 15 การประเมินระดับความอุดมสมบูรณ์ของดิน (บรรเจิด, 2523 กรมพัฒนาที่ดิน)
+                                    </h3>
+                                    <table className="w-full text-center border-collapse text-sm min-w-[600px] mb-4">
+                                        <thead>
+                                            <tr className="bg-gray-100 text-gray-700 border-y-2 border-gray-300">
+                                                <th className="p-3 border-x">ระดับความอุดมสมบูรณ์</th>
+                                                <th className="p-3 border-x text-gray-500 text-xs font-normal">ระดับคะแนน</th>
+                                                <th className="p-3 border-x">OM (%)</th>
+                                                <th className="p-3 border-x">P (mg kg⁻¹)</th>
+                                                <th className="p-3 border-x">K (mg kg⁻¹)</th>
+                                                <th className="p-3 border-x">CEC (cmol kg⁻¹)</th>
+                                                <th className="p-3 border-x">BS (%)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr className="border-b hover:bg-gray-50">
+                                                <td className="p-3 border-x text-left font-semibold">ต่ำ</td>
+                                                <td className="p-3 border-x text-gray-500">(1)</td>
+                                                <td className="p-3 border-x">&lt; 1.5</td>
+                                                <td className="p-3 border-x">&lt; 10</td>
+                                                <td className="p-3 border-x">&lt; 60</td>
+                                                <td className="p-3 border-x">&lt; 10</td>
+                                                <td className="p-3 border-x">&lt; 35</td>
+                                            </tr>
+                                            <tr className="border-b hover:bg-gray-50">
+                                                <td className="p-3 border-x text-left font-semibold">ปานกลาง</td>
+                                                <td className="p-3 border-x text-gray-500">(2)</td>
+                                                <td className="p-3 border-x">1.5 - 3.5</td>
+                                                <td className="p-3 border-x">10 - 25</td>
+                                                <td className="p-3 border-x">60 - 90</td>
+                                                <td className="p-3 border-x">10 - 20</td>
+                                                <td className="p-3 border-x">35 - 75</td>
+                                            </tr>
+                                            <tr className="border-b hover:bg-gray-50 border-b-2 border-gray-300">
+                                                <td className="p-3 border-x text-left font-semibold">สูง</td>
+                                                <td className="p-3 border-x text-gray-500">(3)</td>
+                                                <td className="p-3 border-x">&gt; 3.5</td>
+                                                <td className="p-3 border-x">&gt; 25</td>
+                                                <td className="p-3 border-x">&gt; 90</td>
+                                                <td className="p-3 border-x">&gt; 20</td>
+                                                <td className="p-3 border-x">&gt; 75</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    
+                                    <div className="bg-gray-50 p-4 rounded-lg text-sm flex flex-col md:flex-row justify-center items-center space-y-2 md:space-y-0 md:space-x-4 border border-gray-200">
+                                        <span className="font-bold text-gray-700">เกณฑ์ประเมินระดับคะแนนรวมทั้งหมด:</span>
+                                        <span className="bg-white border border-red-200 text-red-700 px-3 py-1 rounded-full shadow-sm">ผลรวม ≤ 7 = ต่ำ</span>
+                                        <span className="bg-white border border-yellow-200 text-yellow-700 px-3 py-1 rounded-full shadow-sm">ผลรวม 8-12 = ปานกลาง</span>
+                                        <span className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-full shadow-sm">ผลรวม ≥ 13 = สูง</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                                    <h3 className="text-xl font-bold text-purple-800 mb-2 border-b-2 border-purple-200 pb-2 flex items-center">
+                                        <Target size={24} className="text-purple-600 mr-2" />
+                                        ตารางแสดงวิธีการคำนวณจุดตัดเกณฑ์ (Cut-offs Derivation)
+                                    </h3>
+                                    <table className="w-full text-center border-collapse text-sm min-w-[800px]">
+                                        <thead>
+                                            <tr className="bg-gray-100 border-y border-gray-300">
+                                                <th className="p-3 border-x text-left">พารามิเตอร์เคมี / เป้าหมาย</th>
+                                                <th className="p-3 border-x text-gray-600">ค่าเฉลี่ยดัชนี <strong>กลุ่มต่ำ (1)</strong></th>
+                                                <th className="p-3 border-x text-gray-600">ค่าเฉลี่ยดัชนี <strong>กลุ่มกลาง (2)</strong></th>
+                                                <th className="p-3 border-x text-gray-600">ค่าเฉลี่ยดัชนี <strong>กลุ่มสูง (3)</strong></th>
+                                                <th className="p-3 border-x bg-yellow-50 text-yellow-800 font-bold">🎯 จุดตัด 1 → 2 <br/><span className="font-normal text-xs">(Cut-off ต่ำ-กลาง)</span></th>
+                                                <th className="p-3 border-x bg-green-50 text-green-800 font-bold">🎯 จุดตัด 2 → 3 <br/><span className="font-normal text-xs">(Cut-off กลาง-สูง)</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {loopProperties.map(prop => {
+                                                const cut = cutoffs[prop];
+                                                if (!cut) return null;
+                                                return (
+                                                    <tr key={`cut-${prop}`} className="border-b hover:bg-gray-50">
+                                                        <td className="p-3 border-x font-bold uppercase text-left bg-white">{prop === 'bs' ? '%BS' : prop === 'fertility' ? 'คะแนนรวม' : prop}</td>
+                                                        <td className="p-3 border-x"><span className="font-semibold text-base">{cut.count1 > 0 ? cut.mean1.toFixed(3) : '-'}</span><br/><span className="text-xs text-gray-400">(n={cut.count1})</span></td>
+                                                        <td className="p-3 border-x"><span className="font-semibold text-base">{cut.count2 > 0 ? cut.mean2.toFixed(3) : '-'}</span><br/><span className="text-xs text-gray-400">(n={cut.count2})</span></td>
+                                                        <td className="p-3 border-x"><span className="font-semibold text-base">{cut.count3 > 0 ? cut.mean3.toFixed(3) : '-'}</span><br/><span className="text-xs text-gray-400">(n={cut.count3})</span></td>
+                                                        <td className="p-3 border-x bg-yellow-50/50 font-mono text-lg font-bold text-yellow-700">{cut.t1.toFixed(3)}</td>
+                                                        <td className="p-3 border-x bg-green-50/50 font-mono text-lg font-bold text-green-700">{cut.t2.toFixed(3)}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
