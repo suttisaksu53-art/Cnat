@@ -9,6 +9,18 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- ตั้งค่า Babel ให้บังคับใช้ React Classic Runtime เพื่อป้องกันปัญหา Cannot use import statement ในหน้า HTML เปล่า -->
+    <script>
+        if (typeof Babel !== 'undefined') {
+            Babel.registerPreset('react-classic', {
+                presets: [
+                    [Babel.availablePresets['react'], { runtime: 'classic' }]
+                ]
+            });
+        }
+    </script>
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     
@@ -21,7 +33,7 @@
 <body class="bg-gray-50">
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script type="text/babel" data-presets="react-classic">
         const { useState, useEffect } = React;
 
         // ---------------- สร้างไอคอนแบบ SVG ----------------
@@ -366,14 +378,14 @@
 
         // ---------------- คอมโพเนนต์หลักของโปรแกรม ----------------
         function App() {
-            const [modelMode, setModelMode] = useState('bottom_up'); // 'bottom_up' หรือ 'top_down'
+            const [modelMode, setModelMode] = useState('bottom_up'); 
             const [useStrictP, setUseStrictP] = useState(true); 
             const [modelTrained, setModelTrained] = useState(false);
             
-            const [allData, setAllData] = useState([]); // เก็บข้อมูลดิบทั้งหมดก่อน Split
+            const [allData, setAllData] = useState([]); 
             const [testSizeInput, setTestSizeInput] = useState("");
             const [isSplitting, setIsSplitting] = useState(false);
-            const [testDataInfo, setTestDataInfo] = useState(null); // สำหรับเก็บผลลัพธ์การทดสอบ
+            const [testDataInfo, setTestDataInfo] = useState(null); 
             
             const [showStats, setShowStats] = useState(false); 
             const [showRawData, setShowRawData] = useState(false);
@@ -395,6 +407,9 @@
 
             const [useAssistedSplit, setUseAssistedSplit] = useState(true);
             const [targetAccuracy, setTargetAccuracy] = useState('90-100');
+            
+            const [mcResults, setMcResults] = useState(null);
+            const [isRunningMC, setIsRunningMC] = useState(false);
 
             const resetApp = () => {
                 setModelTrained(false);
@@ -407,6 +422,7 @@
                 setIsSplitting(false);
                 setTestDataInfo(null);
                 setAllData([]);
+                setMcResults(null);
                 setErrorMsg('');
             };
 
@@ -496,7 +512,6 @@
                 }
             };
 
-            // ฟังก์ชันหลักในการ Train และคำนวณ Return ค่าออกไปเพื่อใช้ต่อ (ทำแยกไว้เพื่อทดสอบแบบชั่วคราว)
             const trainModelLogic = (data, mode, strictP) => {
                 const properties = mode === 'bottom_up' ? ['cec', 'bs', 'om', 'p', 'k'] : ['fertility'];
                 const propKeys = { cec: 'CEC', bs: 'BS', om: 'OM', p: 'P', k: 'K', fertility: 'FERT' };
@@ -592,6 +607,76 @@
                 return finalClassScore;
             };
 
+            const runMonteCarlo = () => {
+                const nTest = parseInt(testSizeInput) || 0;
+                if (nTest <= 0 || nTest >= allData.length) {
+                    setErrorMsg(`จำนวนข้อมูลทดสอบต้องอยู่ระหว่าง 1 ถึง ${allData.length - 1}`);
+                    return;
+                }
+
+                setIsRunningMC(true);
+                setErrorMsg('');
+                
+                setTimeout(() => {
+                    const results = {
+                        '90-100': { count: 0, rKao: 0, rIll: 0, rSme: 0, rVer: 0, rCount: 0 },
+                        '80-90': { count: 0, rKao: 0, rIll: 0, rSme: 0, rVer: 0, rCount: 0 },
+                        '70-80': { count: 0, rKao: 0, rIll: 0, rSme: 0, rVer: 0, rCount: 0 },
+                        '<70': { count: 0, rKao: 0, rIll: 0, rSme: 0, rVer: 0, rCount: 0 }
+                    };
+
+                    for (let i = 0; i < 100; i++) {
+                        const shuffled = [...allData].sort(() => 0.5 - Math.random());
+                        const testSet = shuffled.slice(0, nTest);
+                        const trainSet = shuffled.slice(nTest);
+
+                        const tempModel = trainModelLogic(trainSet, modelMode, useStrictP);
+                        
+                        let correct = 0;
+                        testSet.forEach(d => {
+                            const pred = predictSingleRow(d, tempModel.weights, tempModel.cutoffs, modelMode);
+                            if (pred === d.fertility) correct++;
+                        });
+                        const acc = (correct / nTest) * 100;
+
+                        let sumRKao = 0, sumRIll = 0, sumRSme = 0, sumRVer = 0;
+                        let pCount = 0;
+                        const props = modelMode === 'bottom_up' ? ['cec', 'bs', 'om', 'p', 'k'] : ['fertility'];
+                        props.forEach(p => {
+                            sumRKao += tempModel.stats[p].Kao.r;
+                            sumRIll += tempModel.stats[p].Ill.r;
+                            sumRSme += tempModel.stats[p].Sme.r;
+                            sumRVer += tempModel.stats[p].Ver.r;
+                            pCount++;
+                        });
+
+                        let bucket = '<70';
+                        if (acc >= 90) bucket = '90-100';
+                        else if (acc >= 80) bucket = '80-90';
+                        else if (acc >= 70) bucket = '70-80';
+
+                        results[bucket].count++;
+                        results[bucket].rKao += (sumRKao / pCount);
+                        results[bucket].rIll += (sumRIll / pCount);
+                        results[bucket].rSme += (sumRSme / pCount);
+                        results[bucket].rVer += (sumRVer / pCount);
+                        results[bucket].rCount++;
+                    }
+
+                    Object.keys(results).forEach(k => {
+                        if (results[k].rCount > 0) {
+                            results[k].rKao /= results[k].rCount;
+                            results[k].rIll /= results[k].rCount;
+                            results[k].rSme /= results[k].rCount;
+                            results[k].rVer /= results[k].rCount;
+                        }
+                    });
+
+                    setMcResults(results);
+                    setIsRunningMC(false);
+                }, 100);
+            };
+
             const handleSplitAndTrain = () => {
                 const nTest = parseInt(testSizeInput) || 0;
                 
@@ -601,7 +686,6 @@
                 }
 
                 if (nTest === 0) {
-                    // Train with 100% data
                     const result = trainModelLogic(allData, modelMode, useStrictP);
                     applyModelToState(allData, result);
                     setTestDataInfo(null);
@@ -613,25 +697,20 @@
                 let trainSet = [];
 
                 if (!useAssistedSplit) {
-                    // แบบสุ่ม 100% (Random Split)
                     const shuffled = [...allData].sort(() => 0.5 - Math.random());
                     testSet = shuffled.slice(0, nTest);
                     trainSet = shuffled.slice(nTest);
                 } else {
-                    // Algorithm to reach target accuracy
                     const tempModel = trainModelLogic(allData, modelMode, useStrictP);
-
                     const evaluatedData = allData.map(d => {
                         const predicted = predictSingleRow(d, tempModel.weights, tempModel.cutoffs, modelMode);
                         const isCorrect = predicted === d.fertility;
                         return { ...d, tempCorrect: isCorrect, predictedScore: predicted };
                     });
 
-                    // แยกกล่องที่ทำนายถูกกับผิด (สุ่มตำแหน่งภายในกล่องเพื่อไม่ให้ซ้ำเดิมตลอด)
                     const correctPool = evaluatedData.filter(d => d.tempCorrect).sort(() => 0.5 - Math.random());
                     const incorrectPool = evaluatedData.filter(d => !d.tempCorrect).sort(() => 0.5 - Math.random());
 
-                    // กำหนดเป้าหมายความแม่นยำ
                     let targetP = 0.95;
                     if (targetAccuracy === '60-70') targetP = 0.65;
                     if (targetAccuracy === '70-80') targetP = 0.75;
@@ -639,14 +718,12 @@
 
                     let targetCorrectCount = Math.round(nTest * targetP);
 
-                    // ถ้าเลือกเปอร์เซ็นต์สูงเกินกว่าที่จะเป็นไปได้ ก็ให้เอาเท่าที่มี (Max Available)
                     if (targetCorrectCount > correctPool.length) {
                         targetCorrectCount = correctPool.length;
                     }
                     
                     let targetIncorrectCount = nTest - targetCorrectCount;
                     
-                    // ถ้าช่องผิดไม่พอ (กรณีคนอยากได้ความแม่นยำต่ำๆ แต่โมเดลดันเก่งมาก)
                     if (targetIncorrectCount > incorrectPool.length) {
                         targetIncorrectCount = incorrectPool.length;
                         targetCorrectCount = nTest - targetIncorrectCount; 
@@ -661,10 +738,8 @@
                     trainSet = evaluatedData.filter(d => !testSetIds.has(d.originalRowIndex));
                 }
 
-                // Retrain official model on Train Set
                 const officialModel = trainModelLogic(trainSet, modelMode, useStrictP);
 
-                // Evaluate Test Set on official model
                 let correctCount = 0;
                 const finalTestResults = testSet.map(d => {
                     const finalPred = predictSingleRow(d, officialModel.weights, officialModel.cutoffs, modelMode);
@@ -673,7 +748,6 @@
                     return { ...d, finalPredictedScore: finalPred, isCorrect };
                 });
 
-                // Apply to UI
                 applyModelToState(trainSet, officialModel);
                 setTestDataInfo({
                     testData: finalTestResults,
@@ -837,16 +911,16 @@
                             <div className="flex flex-wrap gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200 items-center">
                                 <span className="font-bold text-gray-700 w-full md:w-auto flex items-center mr-2">เมนูเปิดดูกล่องดำ (Black Box):</span>
                                 <button onClick={() => setShowRawData(!showRawData)} className={`px-4 py-2 rounded-lg font-bold flex items-center transition text-sm ${showRawData ? 'bg-teal-600 text-white shadow-md' : 'bg-teal-50 text-teal-700 hover:bg-teal-100 border border-teal-200'}`}>
-                                    <ListIcon size={18} className="mr-2" /> {showRawData ? '1. ข้อมูลที่เทรน' : '1. ข้อมูลที่เทรน'}
+                                    <ListIcon size={18} className="mr-2" /> 1. ข้อมูลที่เทรน
                                 </button>
                                 <button onClick={() => setShowGroupedData(!showGroupedData)} className={`px-4 py-2 rounded-lg font-bold flex items-center transition text-sm ${showGroupedData ? 'bg-orange-600 text-white shadow-md' : 'bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200'}`}>
-                                    <LayersIcon size={18} className="mr-2" /> {showGroupedData ? '2. ข้อมูลในกล่อง' : '2. ข้อมูลในกล่อง (จุดตัด)'}
+                                    <LayersIcon size={18} className="mr-2" /> 2. ข้อมูลในกล่อง (จุดตัด)
                                 </button>
                                 <button onClick={() => setShowStats(!showStats)} className={`px-4 py-2 rounded-lg font-bold flex items-center transition text-sm ${showStats ? 'bg-indigo-600 text-white shadow-md' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200'}`}>
-                                    <BarChart2 size={18} className="mr-2" /> {showStats ? '3. กราฟ Scatter' : '3. Scatter Plot & T-value'}
+                                    <BarChart2 size={18} className="mr-2" /> 3. Scatter Plot & T-value
                                 </button>
                                 <button onClick={() => setShowBoxPlots(!showBoxPlots)} className={`px-4 py-2 rounded-lg font-bold flex items-center transition text-sm ${showBoxPlots ? 'bg-rose-600 text-white shadow-md' : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'}`}>
-                                    <BoxIcon size={18} className="mr-2" /> {showBoxPlots ? '4. Box Plot' : '4. ดูการกระจายตัว (Box Plot)'}
+                                    <BoxIcon size={18} className="mr-2" /> 4. ดูการกระจายตัว (Box Plot)
                                 </button>
                                 {testDataInfo && (
                                     <button onClick={() => setShowValidation(!showValidation)} className={`px-4 py-2 rounded-lg font-bold flex items-center transition text-sm ${showValidation ? 'bg-green-600 text-white shadow-md' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'}`}>
@@ -899,8 +973,8 @@
                                             </div>
                                             <div className="ml-3 text-sm text-gray-700">
                                                 {useStrictP ? 
-                                                    <span className="font-bold text-yellow-800">เข้มงวด: ใช้เฉพาะตัวแปรที่มีนัยสำคัญ (p ≤ 0.05)</span> : 
-                                                    <span>อนุโลม: ใช้ตัวแปรทั้งหมด (แม้ p > 0.05)</span>
+                                                    <span className="font-bold text-yellow-800">เข้มงวด: ใช้เฉพาะตัวแปรที่มีนัยสำคัญ (p &le; 0.05)</span> : 
+                                                    <span>อนุโลม: ใช้ตัวแปรทั้งหมด (แม้ p &gt; 0.05)</span>
                                                 }
                                             </div>
                                         </label>
@@ -971,6 +1045,11 @@
                                         <span className="text-[10px] text-green-700 mt-2 italic">*หมายเหตุ: หากข้อมูลไม่เอื้ออำนวยให้ถึงเป้า ระบบจะพยายามเลือกให้ได้เปอร์เซ็นต์ใกล้เคียงมากที่สุด</span>
                                     </div>
                                 )}
+                                
+                                <div className="mt-4 bg-gray-100 p-4 rounded-lg border border-gray-300 text-xs text-gray-600 text-left">
+                                    <p className="font-bold flex items-center mb-1 text-gray-700"><ShieldCheck size={16} className="mr-1 text-gray-500" /> โหมดแปลงข้อมูลย้อนกลับ (Reverse Engineering)</p>
+                                    <p>การระบุค่า r ด้วยตนเองเพื่อแปลงกลับเป็นข้อมูลดิบ (Raw Data) ถือเป็นกระบวนการ Data Fabrication ซึ่งละเมิดหลักสถิติ ระบบจึงใช้ฟังก์ชัน <strong className="text-indigo-600">"จำลองความเป็นไปได้ (Monte Carlo)"</strong> ให้คุณใช้ค้นหาความสัมพันธ์ที่เกิดขึ้นได้จริงในข้อมูลแทน</p>
+                                </div>
 
                                 <div className="flex items-center justify-center space-x-4 mt-6">
                                     <label className="font-bold text-gray-700 text-lg">ต้องการแยกทดสอบกี่ข้อมูล?</label>
@@ -986,9 +1065,48 @@
                                     <span className="text-gray-500 font-medium text-lg">จาก {allData.length}</span>
                                 </div>
 
-                                <button onClick={handleSplitAndTrain} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-md transition text-lg flex justify-center items-center">
-                                    <Calculator size={20} className="mr-2" /> เริ่มประมวลผลโมเดล
-                                </button>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+                                    <button onClick={handleSplitAndTrain} className="w-full py-4 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-md transition text-base flex justify-center items-center">
+                                        <Calculator size={20} className="mr-2" /> ประมวลผลโมเดล (Train)
+                                    </button>
+                                    <button onClick={runMonteCarlo} disabled={isRunningMC} className={`w-full py-4 text-white rounded-xl font-bold shadow-md transition text-base flex justify-center items-center ${isRunningMC ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                        <Database size={20} className="mr-2" /> {isRunningMC ? 'กำลังสุ่มจำลอง 100 รอบ...' : 'จำลองมอนติคาร์โล (Monte Carlo)'}
+                                    </button>
+                                </div>
+
+                                {mcResults && (
+                                    <div className="mt-6 bg-indigo-50 p-5 rounded-xl border border-indigo-200 animate-fade-in text-left">
+                                        <h3 className="font-bold text-indigo-900 mb-1 flex items-center"><BarChart2 size={18} className="mr-2"/> ผลการจำลองสุ่ม 100 รูปแบบ (Monte Carlo Analysis)</h3>
+                                        <p className="text-xs text-indigo-700 mb-4">แสดงความน่าจะเป็นที่โมเดลจะทำความแม่นยำได้ในแต่ละช่วง และค่าความสัมพันธ์ (r) เฉลี่ยของแร่แต่ละชนิด</p>
+                                        <table className="w-full text-center text-sm border-collapse bg-white rounded-lg overflow-hidden shadow-sm">
+                                            <thead className="bg-indigo-100 text-indigo-900">
+                                                <tr>
+                                                    <th className="p-2 border border-indigo-200">ช่วงความแม่นยำ</th>
+                                                    <th className="p-2 border border-indigo-200">ความเป็นไปได้ (วิธี)</th>
+                                                    <th className="p-2 border border-indigo-200">Avg r(Kao)</th>
+                                                    <th className="p-2 border border-indigo-200">Avg r(Ill)</th>
+                                                    <th className="p-2 border border-indigo-200">Avg r(Sme)</th>
+                                                    <th className="p-2 border border-indigo-200">Avg r(Ver)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {['90-100', '80-90', '70-80', '<70'].map(bucket => {
+                                                    const data = mcResults[bucket];
+                                                    return (
+                                                        <tr key={bucket} className="border-b border-indigo-100 hover:bg-indigo-50/50">
+                                                            <td className="p-2 border border-indigo-100 font-bold text-indigo-700">{bucket === '<70' ? '< 70' : bucket}%</td>
+                                                            <td className="p-2 border border-indigo-100 font-bold">{data.count} / 100</td>
+                                                            <td className="p-2 border border-indigo-100 text-xs font-mono">{data.rCount > 0 ? data.rKao.toFixed(3) : '-'}</td>
+                                                            <td className="p-2 border border-indigo-100 text-xs font-mono">{data.rCount > 0 ? data.rIll.toFixed(3) : '-'}</td>
+                                                            <td className="p-2 border border-indigo-100 text-xs font-mono">{data.rCount > 0 ? data.rSme.toFixed(3) : '-'}</td>
+                                                            <td className="p-2 border border-indigo-100 text-xs font-mono">{data.rCount > 0 ? data.rVer.toFixed(3) : '-'}</td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -1165,7 +1283,7 @@
                                                 
                                                 <div className="flex justify-center shrink-0 -my-3 z-10">
                                                     <span className="bg-white border-2 border-yellow-400 text-gray-800 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-sm whitespace-nowrap">
-                                                        ✂️ จุดตัด: ({cut.mean1.toFixed(3)} + {cut.mean2.toFixed(3)}) ÷ 2 = {cut.t1.toFixed(3)}
+                                                        🎯 จุดตัด: ({cut.mean1.toFixed(3)} + {cut.mean2.toFixed(3)}) ÷ 2 = {cut.t1.toFixed(3)}
                                                     </span>
                                                 </div>
                                                 
@@ -1190,7 +1308,7 @@
 
                                                 <div className="flex justify-center shrink-0 -my-3 z-10">
                                                     <span className="bg-white border-2 border-green-400 text-gray-800 text-[10px] font-bold py-0.5 px-2 rounded-full shadow-sm whitespace-nowrap">
-                                                        ✂️ จุดตัด: ({cut.mean2.toFixed(3)} + {cut.mean3.toFixed(3)}) ÷ 2 = {cut.t2.toFixed(3)}
+                                                        🎯 จุดตัด: ({cut.mean2.toFixed(3)} + {cut.mean3.toFixed(3)}) ÷ 2 = {cut.t2.toFixed(3)}
                                                     </span>
                                                 </div>
                                                 
@@ -1235,7 +1353,7 @@
                                         <h3 className="font-bold text-gray-800 text-lg">ตารางที่ 1: ค่าสถิติทดสอบสมมติฐาน</h3>
                                         
                                         <button onClick={toggleStrictPValue} className={`text-xs px-4 py-2 rounded-lg font-bold border transition-colors flex items-center shadow-sm ${useStrictP ? 'bg-red-50 text-red-700 border-red-300 hover:bg-red-100' : 'bg-green-50 text-green-700 border-green-300 hover:bg-green-100'}`}>
-                                            {useStrictP ? <span className="flex items-center"><AlertCircle size={16} className="mr-1"/> 🔒 บังคับตัดตัวแปรที่ p &gt; 0.05 (เปิดใช้งาน)</span> : <span className="flex items-center"><CheckCircle2 size={16} className="mr-1"/> 🔓 อนุโลมใช้ตัวแปรทั้งหมด (ปิดบังคับ p-value)</span>}
+                                            {useStrictP ? <span className="flex items-center"><AlertCircle size={16} className="mr-1"/> 🔒 บังคับตัดตัวแปรที่ p {'≤'} 0.05 (เปิดใช้งาน)</span> : <span className="flex items-center"><CheckCircle2 size={16} className="mr-1"/> 🔓 อนุโลมใช้ตัวแปรทั้งหมด (ปิดบังคับ p-value)</span>}
                                         </button>
                                     </div>
 
@@ -1243,7 +1361,7 @@
                                     
                                     {modelMode === 'top_down' && (
                                         <div className="bg-red-50 border border-red-200 p-3 mb-3 rounded text-red-800 text-sm">
-                                            <strong>⚠️ ข้อสังเกตจากวิธี Top-Down:</strong> จะเห็นได้ว่าค่า r ลดต่ำลงและ p-value มักจะไม่ผ่านเกณฑ์ (p > 0.05) เนื่องจากเกิดปรากฏการณ์ <strong>Dilution Effect</strong> จากการนำแร่ดินเหนียวไปหาความสัมพันธ์รวมกับ OM และ P ซึ่งไม่เกี่ยวข้องกันทางทฤษฎี
+                                            <strong>⚠️ ข้อสังเกตจากวิธี Top-Down:</strong> จะเห็นได้ว่าค่า r ลดต่ำลงและ p-value มักจะไม่ผ่านเกณฑ์ (p &gt; 0.05) เนื่องจากเกิดปรากฏการณ์ <strong>Dilution Effect</strong> จากการนำแร่ดินเหนียวไปหาความสัมพันธ์รวมกับ OM และ P ซึ่งไม่เกี่ยวข้องกันทางทฤษฎี
                                         </div>
                                     )}
                                     <table className="w-full text-center border-collapse text-sm min-w-[700px]">
@@ -1274,15 +1392,15 @@
                                                             <td className="p-2 border-x">{stat.n}</td>
                                                             <td className={`p-2 border-x font-mono font-bold ${isSig && isNegative ? 'text-orange-600' : ''}`}>{stat.r.toFixed(4)}</td>
                                                             <td className="p-2 border-x font-mono text-indigo-700 font-semibold">{stat.t.toFixed(4)}</td>
-                                                            <td className="p-2 border-x font-mono font-bold text-red-600">{stat.p < 0.001 ? '< 0.001' : stat.p.toFixed(4)}</td>
+                                                            <td className="p-2 border-x font-mono font-bold text-red-600">{stat.p < 0.001 ? '&lt; 0.001' : stat.p.toFixed(4)}</td>
                                                             <td className="p-2 border-x text-xs">
                                                                 {isSig ? (
                                                                     <div className={`font-bold ${isNegative ? 'text-orange-700' : 'text-green-700'}`}>
                                                                         <span>✓ นำไปเป็นน้ำหนัก{isNegative ? 'เชิงลบ' : ''} (W)</span>
-                                                                        {!useStrictP && stat.p > 0.05 && <span className="block text-yellow-600 text-[10px] mt-0.5 bg-yellow-50 px-1 py-0.5 rounded border border-yellow-200">⚠️ p > 0.05</span>}
+                                                                        {!useStrictP && stat.p > 0.05 && <span className="block text-yellow-600 text-[10px] mt-0.5 bg-yellow-50 px-1 py-0.5 rounded border border-yellow-200">⚠️ p &gt; 0.05</span>}
                                                                     </div>
                                                                 ) : (
-                                                                    <span className="text-gray-400">✗ ตัดทิ้ง (p > 0.05)</span>
+                                                                    <span className="text-gray-400">✗ ตัดทิ้ง (p &gt; 0.05)</span>
                                                                 )}
                                                             </td>
                                                         </tr>
@@ -1326,7 +1444,7 @@
                                     </h2>
                                     <p className="text-rose-700 mt-2 max-w-3xl mx-auto">
                                         แผนภาพกล่อง (Box Plot) แสดงการกระจายตัวของข้อมูลดิบจากห้องปฏิบัติการเพื่อตรวจสอบ <strong>ค่าผิดปกติ (Outliers)</strong> 
-                                        ที่อาจส่งผลต่อการฝึกสอนโมเดล จุดสีแดงแสดงถึงข้อมูลที่หลุดกรอบ $\pm$ 1.5 IQR (Interquartile Range)
+                                        ที่อาจส่งผลต่อการฝึกสอนโมเดล จุดสีแดงแสดงถึงข้อมูลที่หลุดกรอบ &plusmn; 1.5 IQR (Interquartile Range)
                                     </p>
                                 </div>
                                 
@@ -1370,6 +1488,38 @@
                                     <button onClick={handlePredict} className="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition shadow-md flex justify-center items-center">
                                         <Calculator size={18} className="mr-2" /> คำนวณผลและแสดงสมการ
                                     </button>
+
+                                    {/* TABLE REFERENCE IN PREDICTION BOX */}
+                                    <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
+                                        <h4 className="font-bold text-blue-800 text-sm flex items-center mb-3">
+                                            <TableProperties size={18} className="mr-2"/> ตารางสะสมแต้มแร่ดินเหนียว
+                                        </h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-[10px] border-collapse text-center">
+                                                <thead>
+                                                    <tr className="bg-gray-100">
+                                                        <th className="p-1 border text-left font-bold">ช่วงแร่ (%)</th>
+                                                        <th className="p-1 border text-blue-700">Kao</th>
+                                                        <th className="p-1 border text-blue-700">Ill</th>
+                                                        <th className="p-1 border text-blue-700">Sme</th>
+                                                        <th className="p-1 border text-blue-700">Ver</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {availableRanges.map(range => (
+                                                        <tr key={range} className="hover:bg-blue-50">
+                                                            <td className="p-1 border text-left font-semibold bg-gray-50">{range}</td>
+                                                            <td className="p-1 border font-mono">{((weights[modelMode === 'bottom_up' ? 'cec' : 'fertility']?.Kao || 0) * rankMap[range]).toFixed(3)}</td>
+                                                            <td className="p-1 border font-mono">{((weights[modelMode === 'bottom_up' ? 'cec' : 'fertility']?.Ill || 0) * rankMap[range]).toFixed(3)}</td>
+                                                            <td className="p-1 border font-mono">{((weights[modelMode === 'bottom_up' ? 'cec' : 'fertility']?.Sme || 0) * rankMap[range]).toFixed(3)}</td>
+                                                            <td className="p-1 border font-mono">{((weights[modelMode === 'bottom_up' ? 'cec' : 'fertility']?.Ver || 0) * rankMap[range]).toFixed(3)}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
                                 </div>
 
                                 <div className="md:col-span-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -1388,7 +1538,7 @@
                                                 {modelMode === 'bottom_up' ? (
                                                     <div>
                                                         <p className="text-lg mt-2 font-medium bg-white/50 inline-block px-4 py-1 rounded-full border border-white/40 mb-2">คะแนนรวมจาก 5 สมการ: {prediction.totalScore} / 15</p>
-                                                        <p className="text-xs font-semibold opacity-90 mt-1 block">(เกณฑ์: ≤ 7 ต่ำ, 8-12 ปานกลาง, ≥ 13 สูง)</p>
+                                                        <p className="text-xs font-semibold opacity-90 mt-1 block">(เกณฑ์: &le; 7 ต่ำ, 8-12 ปานกลาง, &ge; 13 สูง)</p>
                                                     </div>
                                                 ) : (
                                                     <div>
@@ -1442,7 +1592,7 @@
                                                         Index_{propName} = ({w.Kao.toFixed(4)} × Kao) + ({w.Ill.toFixed(4)} × Ill) + ({w.Sme.toFixed(4)} × Sme) + ({w.Ver.toFixed(4)} × Ver)
                                                     </p>
                                                     <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                                                        <div className="p-2 bg-red-900/30 rounded border border-red-800/30 text-red-200">ต่ำ (1): ดัชนี ≤ {c.t1.toFixed(3)}</div>
+                                                        <div className="p-2 bg-red-900/30 rounded border border-red-800/30 text-red-200">ต่ำ (1): ดัชนี &le; {c.t1.toFixed(3)}</div>
                                                         <div className="p-2 bg-yellow-900/30 rounded border border-yellow-800/30 text-yellow-200">กลาง (2): {c.t1.toFixed(3)} - {c.t2.toFixed(3)}</div>
                                                         <div className="p-2 bg-green-900/30 rounded border border-green-800/30 text-green-200">สูง (3): ดัชนี &gt; {c.t2.toFixed(3)}</div>
                                                     </div>
@@ -1455,9 +1605,9 @@
                                                 <p className="font-bold text-blue-300 mb-2">การแปลผลรวม (Total Score):</p>
                                                 <p className="text-white text-base">Total = Score_CEC + Score_BS + Score_OM + Score_P + Score_K</p>
                                                 <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                                                    <div className="p-2 bg-red-900/30 rounded border border-red-800/30 text-red-200">ต่ำ: Total ≤ 7</div>
+                                                    <div className="p-2 bg-red-900/30 rounded border border-red-800/30 text-red-200">ต่ำ: Total &le; 7</div>
                                                     <div className="p-2 bg-yellow-900/30 rounded border border-yellow-800/30 text-yellow-200">กลาง: Total 8 - 12</div>
-                                                    <div className="p-2 bg-green-900/30 rounded border border-green-800/30 text-green-200">สูง: Total ≥ 13</div>
+                                                    <div className="p-2 bg-green-900/30 rounded border border-green-800/30 text-green-200">สูง: Total &ge; 13</div>
                                                 </div>
                                             </div>
                                         )}
@@ -1523,9 +1673,9 @@
                                     
                                     <div className="bg-gray-50 p-4 rounded-lg text-sm flex flex-col md:flex-row justify-center items-center space-y-2 md:space-y-0 md:space-x-4 border border-gray-200">
                                         <span className="font-bold text-gray-700">เกณฑ์ประเมินระดับคะแนนรวมทั้งหมด:</span>
-                                        <span className="bg-white border border-red-200 text-red-700 px-3 py-1 rounded-full shadow-sm">ผลรวม ≤ 7 = ต่ำ</span>
+                                        <span className="bg-white border border-red-200 text-red-700 px-3 py-1 rounded-full shadow-sm">ผลรวม &le; 7 = ต่ำ</span>
                                         <span className="bg-white border border-yellow-200 text-yellow-700 px-3 py-1 rounded-full shadow-sm">ผลรวม 8-12 = ปานกลาง</span>
-                                        <span className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-full shadow-sm">ผลรวม ≥ 13 = สูง</span>
+                                        <span className="bg-white border border-green-200 text-green-700 px-3 py-1 rounded-full shadow-sm">ผลรวม &ge; 13 = สูง</span>
                                     </div>
                                 </div>
 
